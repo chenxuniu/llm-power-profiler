@@ -1,0 +1,55 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "llm-power-profiler"
+version = "0.1.0"
+description = "Lightweight local monitor for watts, tokens, and joules per token on OpenAI-compatible LLM servers."
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MIT"
+authors = [
+  { name = "Chenxun Niu" }
+]
+keywords = [
+  "llm",
+  "gpu",
+  "power",
+  "energy",
+  "nvml",
+  "nvidia",
+  "vllm",
+  "inference",
+  "joules-per-token"
+]
+dependencies = [
+  "httpx>=0.27",
+  "nvidia-ml-py>=12.535",
+  "rich>=13.7",
+  "starlette>=0.37",
+  "typer>=0.12",
+  "uvicorn>=0.29"
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+  "ruff>=0.5"
+]
+
+[project.urls]
+Homepage = "https://github.com/chenxuniu/llm-power-profiler"
+Repository = "https://github.com/chenxuniu/llm-power-profiler"
+Issues = "https://github.com/chenxuniu/llm-power-profiler/issues"
+
+[project.scripts]
+llm-power-profiler = "llm_power_profiler.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/llm_power_profiler"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
