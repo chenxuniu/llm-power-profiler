@@ -73,6 +73,18 @@ J/token         1.58
 kWh/1M tokens   0.44
 ```
 
+## Screenshots
+
+NVML and A100 power telemetry check:
+
+![llm-power-profiler doctor on A100](docs/assets/doctor-a100-redacted.png)
+
+Local proxy smoke run with the mock OpenAI-compatible server:
+
+![llm-power-profiler proxy dashboard](docs/assets/proxy-a100-mock-redacted.png)
+
+The mock server is useful for validating the monitoring pipeline. Real LLM energy numbers should be collected with an actual inference server such as vLLM or SGLang.
+
 ## Commands
 
 ```bash
