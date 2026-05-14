@@ -14,6 +14,14 @@ The mock server listens on:
 http://127.0.0.1:8000
 ```
 
+If port `8000` is already in use:
+
+```bash
+python3 examples/mock_openai_server.py --port 8001
+```
+
+Then start the profiler with `--target http://127.0.0.1:8001`.
+
 ## 2. Start the Profiler Proxy
 
 In another terminal:

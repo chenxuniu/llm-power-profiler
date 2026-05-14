@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import argparse
 import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Dict
@@ -90,8 +91,13 @@ class MockOpenAIHandler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
-    server = ThreadingHTTPServer(("127.0.0.1", 8000), MockOpenAIHandler)
-    print("Mock OpenAI-compatible server listening on http://127.0.0.1:8000")
+    parser = argparse.ArgumentParser(description="Run a mock OpenAI-compatible server.")
+    parser.add_argument("--host", default="127.0.0.1", help="Bind host.")
+    parser.add_argument("--port", type=int, default=8000, help="Bind port.")
+    args = parser.parse_args()
+
+    server = ThreadingHTTPServer((args.host, args.port), MockOpenAIHandler)
+    print(f"Mock OpenAI-compatible server listening on http://{args.host}:{args.port}")
     print("Try: POST /v1/chat/completions")
     server.serve_forever()
 

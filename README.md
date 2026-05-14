@@ -105,6 +105,12 @@ You can test the token-accounting path with the included mock OpenAI-compatible 
 python3 examples/mock_openai_server.py
 ```
 
+If port `8000` is already in use:
+
+```bash
+python3 examples/mock_openai_server.py --port 8001
+```
+
 Then run the proxy:
 
 ```bash
