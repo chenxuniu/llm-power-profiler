@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import threading
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 import httpx
 import uvicorn
@@ -12,9 +12,11 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import Route
 
+from llm_power_profiler.export import write_json_report
 from llm_power_profiler.nvml import NVMLMonitor, NVMLUnavailable
 from llm_power_profiler.stats import SessionStats
 from llm_power_profiler.tui import render_session
+from llm_power_profiler.usage import parse_openai_usage
 
 
 HOP_BY_HOP_HEADERS = {
@@ -27,17 +29,26 @@ HOP_BY_HOP_HEADERS = {
     "transfer-encoding",
     "upgrade",
     "host",
+    "content-length",
+    "content-encoding",
 }
 
 
-def run_proxy(target: str, host: str, port: int, interval_s: float) -> None:
+def run_proxy(
+    target: str,
+    host: str,
+    port: int,
+    interval_s: float,
+    export_path: Optional[str] = None,
+    gpu_indices: Optional[List[int]] = None,
+) -> None:
     stats = SessionStats()
     stop_event = threading.Event()
     console = Console()
 
     sampler_thread = threading.Thread(
         target=_sample_power_loop,
-        args=(stats, interval_s, stop_event),
+        args=(stats, interval_s, stop_event, gpu_indices),
         daemon=True,
     )
     sampler_thread.start()
@@ -56,6 +67,8 @@ def run_proxy(target: str, host: str, port: int, interval_s: float) -> None:
         stop_event.set()
         sampler_thread.join(timeout=2)
         dashboard_thread.join(timeout=2)
+        if export_path:
+            write_json_report(export_path, stats.snapshot().to_dict())
 
 
 def create_app(target: str, stats: SessionStats) -> Starlette:
@@ -111,21 +124,19 @@ def _extract_usage(response: httpx.Response) -> Optional[Dict[str, int]]:
     except (json.JSONDecodeError, ValueError):
         return None
 
-    usage = payload.get("usage") if isinstance(payload, dict) else None
-    if not isinstance(usage, dict):
-        return None
-
-    return {
-        "prompt_tokens": int(usage.get("prompt_tokens") or 0),
-        "completion_tokens": int(usage.get("completion_tokens") or 0),
-        "total_tokens": int(usage.get("total_tokens") or 0),
-    }
+    return parse_openai_usage(payload)
 
 
-def _sample_power_loop(stats: SessionStats, interval_s: float, stop_event: threading.Event) -> None:
+def _sample_power_loop(
+    stats: SessionStats,
+    interval_s: float,
+    stop_event: threading.Event,
+    gpu_indices: Optional[List[int]],
+) -> None:
     try:
-        monitor = NVMLMonitor()
-    except NVMLUnavailable:
+        monitor = NVMLMonitor(gpu_indices=gpu_indices)
+    except NVMLUnavailable as exc:
+        stats.set_power_error(str(exc))
         return
 
     while not stop_event.is_set():

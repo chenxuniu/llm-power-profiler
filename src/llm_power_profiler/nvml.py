@@ -20,7 +20,7 @@ class GPUSample:
 
 
 class NVMLMonitor:
-    def __init__(self) -> None:
+    def __init__(self, gpu_indices: Optional[List[int]] = None) -> None:
         try:
             import pynvml
         except Exception as exc:  # pragma: no cover - depends on host GPU setup
@@ -32,10 +32,12 @@ class NVMLMonitor:
             self._device_count = pynvml.nvmlDeviceGetCount()
         except Exception as exc:  # pragma: no cover - depends on host GPU setup
             raise NVMLUnavailable(f"NVML initialization failed: {exc}") from exc
+        self._gpu_indices = gpu_indices or list(range(self._device_count))
+        self._validate_gpu_indices()
 
     def sample(self) -> List[GPUSample]:
         samples: List[GPUSample] = []
-        for index in range(self._device_count):
+        for index in self._gpu_indices:
             handle = self._pynvml.nvmlDeviceGetHandleByIndex(index)
             samples.append(
                 GPUSample(
@@ -49,6 +51,13 @@ class NVMLMonitor:
                 )
             )
         return samples
+
+    def _validate_gpu_indices(self) -> None:
+        invalid = [index for index in self._gpu_indices if index < 0 or index >= self._device_count]
+        if invalid:
+            raise NVMLUnavailable(
+                f"Invalid GPU index {invalid}; available indices are 0-{self._device_count - 1}"
+            )
 
     def _name(self, handle: object) -> str:
         name = self._pynvml.nvmlDeviceGetName(handle)
@@ -89,3 +98,23 @@ class NVMLMonitor:
         except Exception:
             return None
 
+
+def parse_gpu_indices(value: Optional[str]) -> Optional[List[int]]:
+    if value is None:
+        return None
+
+    normalized = value.strip().lower()
+    if normalized in {"", "all"}:
+        return None
+
+    indices: List[int] = []
+    for part in normalized.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            indices.append(int(part))
+        except ValueError as exc:
+            raise ValueError(f"Invalid GPU index '{part}'") from exc
+
+    return indices or None

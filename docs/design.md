@@ -35,6 +35,8 @@ Stats engine
 - `nvml.py`: NVIDIA GPU sampling through NVML.
 - `proxy.py`: OpenAI-compatible HTTP forwarding and usage extraction.
 - `stats.py`: thread-safe counters and energy integration.
+- `usage.py`: OpenAI-compatible usage parsing.
+- `export.py`: JSON report writing.
 - `tui.py`: Rich terminal rendering.
 
 ## First-Version Assumptions
@@ -54,4 +56,3 @@ Stats engine
 - DCGM backend.
 - Slurm job metadata.
 - Multi-node aggregation.
-

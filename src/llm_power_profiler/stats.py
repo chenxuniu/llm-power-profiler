@@ -3,7 +3,7 @@ from __future__ import annotations
 import threading
 import time
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Dict, Optional
 
 
 @dataclass(frozen=True)
@@ -16,6 +16,7 @@ class SessionSnapshot:
     tokens_per_second: Optional[float]
     avg_power_w: Optional[float]
     peak_power_w: Optional[float]
+    power_error: Optional[str]
     energy_j: float
     energy_wh: float
     energy_kwh: float
@@ -23,6 +24,26 @@ class SessionSnapshot:
     kwh_per_1m_tokens: Optional[float]
     avg_gpu_util_pct: Optional[float]
     max_memory_gb: Optional[float]
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "duration_s": self.duration_s,
+            "request_count": self.request_count,
+            "prompt_tokens": self.prompt_tokens,
+            "completion_tokens": self.completion_tokens,
+            "total_tokens": self.total_tokens,
+            "tokens_per_second": self.tokens_per_second,
+            "avg_power_w": self.avg_power_w,
+            "peak_power_w": self.peak_power_w,
+            "power_error": self.power_error,
+            "energy_j": self.energy_j,
+            "energy_wh": self.energy_wh,
+            "energy_kwh": self.energy_kwh,
+            "joules_per_token": self.joules_per_token,
+            "kwh_per_1m_tokens": self.kwh_per_1m_tokens,
+            "avg_gpu_util_pct": self.avg_gpu_util_pct,
+            "max_memory_gb": self.max_memory_gb,
+        }
 
 
 class SessionStats:
@@ -38,6 +59,7 @@ class SessionStats:
         self._gpu_util_sum = 0.0
         self._gpu_util_count = 0
         self._max_memory_gb: Optional[float] = None
+        self._power_error: Optional[str] = None
         self._request_count = 0
         self._prompt_tokens = 0
         self._completion_tokens = 0
@@ -75,6 +97,10 @@ class SessionStats:
                     if self._max_memory_gb is None
                     else max(self._max_memory_gb, max_memory_gb)
                 )
+
+    def set_power_error(self, message: str) -> None:
+        with self._lock:
+            self._power_error = message
 
     def record_request(self, prompt_tokens: int, completion_tokens: int, total_tokens: int) -> None:
         with self._lock:
@@ -115,6 +141,7 @@ class SessionStats:
                 tokens_per_second=tokens_per_second,
                 avg_power_w=avg_power_w,
                 peak_power_w=self._peak_power_w,
+                power_error=self._power_error,
                 energy_j=self._power_area_j,
                 energy_wh=self._power_area_j / 3600.0,
                 energy_kwh=self._power_area_j / 3_600_000.0,
@@ -123,4 +150,3 @@ class SessionStats:
                 avg_gpu_util_pct=avg_gpu_util_pct,
                 max_memory_gb=self._max_memory_gb,
             )
-

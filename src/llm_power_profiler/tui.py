@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import time
-from typing import Optional
+from typing import List, Optional
 
-from rich.console import Group
+from rich.console import Console, Group
 from rich.live import Live
 from rich.panel import Panel
 from rich.table import Table
@@ -12,8 +12,17 @@ from llm_power_profiler.nvml import NVMLMonitor, NVMLUnavailable
 from llm_power_profiler.stats import SessionSnapshot
 
 
-def run_watch(interval_s: float, duration_s: Optional[float]) -> None:
-    monitor = NVMLMonitor()
+def run_watch(
+    interval_s: float,
+    duration_s: Optional[float],
+    gpu_indices: Optional[List[int]] = None,
+) -> None:
+    console = Console()
+    try:
+        monitor = NVMLMonitor(gpu_indices=gpu_indices)
+    except NVMLUnavailable as exc:
+        console.print(_nvml_error_panel(exc))
+        raise SystemExit(1) from exc
     start = time.monotonic()
 
     with Live(refresh_per_second=max(1, int(1 / interval_s))) as live:
@@ -62,6 +71,8 @@ def render_session(snapshot: SessionSnapshot, target: str, listening: str) -> Gr
     metrics.add_row("Completion tokens", f"{snapshot.completion_tokens:,}")
     metrics.add_row("Total tokens", f"{snapshot.total_tokens:,}")
     metrics.add_row("Throughput", _fmt(snapshot.tokens_per_second, "tok/s"))
+    if snapshot.power_error:
+        metrics.add_row("Power telemetry", f"[yellow]disabled[/yellow]: {snapshot.power_error}")
     metrics.add_row("Avg power", _fmt(snapshot.avg_power_w, "W"))
     metrics.add_row("Peak power", _fmt(snapshot.peak_power_w, "W"))
     metrics.add_row("Energy", f"{snapshot.energy_kwh:.6f} kWh")
@@ -90,4 +101,3 @@ def _fmt_memory(used_gb: Optional[float], total_gb: Optional[float]) -> str:
 
 def _nvml_error_panel(exc: NVMLUnavailable) -> Panel:
     return Panel(str(exc), title="NVML unavailable")
-

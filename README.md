@@ -41,7 +41,11 @@ vllm serve meta-llama/Llama-3.1-8B-Instruct --port 8000
 Run the profiler as a local proxy:
 
 ```bash
-llm-power-profiler proxy --target http://localhost:8000 --port 9000
+llm-power-profiler proxy \
+  --target http://localhost:8000 \
+  --port 9000 \
+  --gpus 0 \
+  --export reports/session.json
 ```
 
 Send requests through the profiler:
@@ -88,6 +92,40 @@ llm-power-profiler proxy --target http://localhost:8000 --port 9000
 ```
 
 Runs a local OpenAI-compatible proxy and calculates aggregate watts, tokens, and joules per token.
+
+Add `--export reports/session.json` to write a JSON report when the proxy exits.
+
+Add `--gpus 0,1` to sample a subset of local NVIDIA GPUs.
+
+## Try Without a GPU
+
+You can test the token-accounting path with the included mock OpenAI-compatible server:
+
+```bash
+python3 examples/mock_openai_server.py
+```
+
+Then run the proxy:
+
+```bash
+llm-power-profiler proxy \
+  --target http://127.0.0.1:8000 \
+  --port 9000 \
+  --export reports/mock-session.json
+```
+
+If NVML is unavailable, token metrics still work and power metrics are marked as disabled.
+
+Generate repeatable test traffic:
+
+```bash
+python3 examples/traffic_generator.py \
+  --base-url http://127.0.0.1:9000 \
+  --model mock-llm \
+  --requests 16 \
+  --concurrency 4 \
+  --max-tokens 128
+```
 
 ## MVP Scope
 
@@ -153,3 +191,7 @@ Run tests:
 ```bash
 PYTHONPATH=src python3 -m unittest discover -s tests
 ```
+
+See [docs/validation.md](docs/validation.md) for a step-by-step local validation flow.
+See [docs/experiments.md](docs/experiments.md) for the first A100/H100/H200 experiment plan.
+See [docs/hpec-paper-plan.md](docs/hpec-paper-plan.md) for the short paper direction.

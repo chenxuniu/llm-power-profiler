@@ -3,10 +3,12 @@ from __future__ import annotations
 from rich.console import Console
 from rich.table import Table
 
+from typing import List, Optional
+
 from llm_power_profiler.nvml import NVMLMonitor, NVMLUnavailable
 
 
-def run_doctor() -> None:
+def run_doctor(gpu_indices: Optional[List[int]] = None) -> None:
     console = Console()
     table = Table(title="llm-power-profiler doctor")
     table.add_column("Check")
@@ -14,7 +16,7 @@ def run_doctor() -> None:
     table.add_column("Details")
 
     try:
-        monitor = NVMLMonitor()
+        monitor = NVMLMonitor(gpu_indices=gpu_indices)
         gpus = monitor.sample()
     except NVMLUnavailable as exc:
         table.add_row("NVML", "[red]FAIL[/red]", str(exc))
@@ -33,4 +35,3 @@ def run_doctor() -> None:
         )
 
     console.print(table)
-
