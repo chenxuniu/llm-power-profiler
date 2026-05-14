@@ -1,0 +1,216 @@
+\documentclass[conference]{IEEEtran}
+
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{cite}
+\usepackage{graphicx}
+\usepackage{url}
+
+\begin{document}
+
+\title{llm-power-profiler: Lightweight Energy-per-Token Monitoring for Local LLM Inference Servers}
+
+\author{
+\IEEEauthorblockN{Chenxun Niu}
+\IEEEauthorblockA{
+TODO: Affiliation\\
+TODO: Email
+}
+}
+
+\maketitle
+
+\begin{abstract}
+Large language model (LLM) serving systems expose application-level token usage, while GPU management libraries expose system-level power telemetry. In current deployment workflows, these two signals are often observed separately: tools such as \texttt{nvidia-smi} report watts, and OpenAI-compatible inference servers report tokens. This separation makes it difficult for practitioners to monitor energy efficiency during local or cluster-based LLM deployment.
+
+We present \texttt{llm-power-profiler}, a lightweight proxy-based framework that bridges OpenAI-compatible token accounting with NVIDIA Management Library (NVML) power sampling. The framework requires no modification to the inference server, no privileged daemon, and no database. It provides live session-level metrics including average power, peak power, total energy, joules per token, and kWh per million tokens. We describe the design and implementation of the framework and outline an evaluation across A100, H100, and H200 systems using OpenAI-compatible LLM serving workloads. Preliminary smoke tests on an A100 system validate that the framework can collect token counts and GPU power telemetry through the same local monitoring path.
+\end{abstract}
+
+\begin{IEEEkeywords}
+LLM inference, energy efficiency, GPU monitoring, NVML, power telemetry, performance engineering, OpenAI-compatible serving
+\end{IEEEkeywords}
+
+\section{Introduction}
+
+LLM inference is increasingly deployed as a local or cluster-hosted service through engines such as vLLM~\cite{kwon2023vllm}, SGLang~\cite{sglang}, Text Generation Inference~\cite{tgi}, llama.cpp~\cite{llama_cpp}, and other OpenAI-compatible servers. In these environments, throughput and latency are routinely measured, but energy efficiency is often harder to observe during normal deployment. A GPU operator can run \texttt{nvidia-smi} to view power draw, utilization, and memory usage, but that tool has no knowledge of how many tokens an LLM server produced. Conversely, an OpenAI-compatible response may include \texttt{usage.total\_tokens}, but this application-layer counter is not connected to node-level power telemetry.
+
+This paper studies a practical systems question: can deployment-time LLM energy observability be made lightweight by bridging token usage with GPU power telemetry? We focus on session-level operational monitoring rather than full benchmark automation. The goal is not to replace rigorous benchmark suites such as TokenPowerBench~\cite{tokenpowerbench}, but to provide a low-friction tool that an engineer can run next to an existing local LLM server.
+
+We propose \texttt{llm-power-profiler}, a lightweight local monitor that measures watts, tokens, and joules per token for OpenAI-compatible LLM servers. The framework runs as an HTTP proxy between client traffic and the inference server. It forwards requests, extracts token usage from OpenAI-compatible responses, samples GPU telemetry through NVML~\cite{nvidia_nvml}, and reports aggregate session metrics.
+
+This work makes three contributions:
+
+\begin{itemize}
+    \item We identify a deployment-time observability gap between GPU power telemetry and LLM token accounting.
+    \item We design and implement a proxy-based monitoring framework that requires no server modification, root privileges, or external telemetry stack.
+    \item We define an evaluation methodology for comparing energy-per-token behavior across A100, H100, and H200 systems under varying concurrency and output length.
+\end{itemize}
+
+\section{Motivation and Challenges}
+
+\subsection{Split Observability Layers}
+
+GPU telemetry and LLM token accounting live at different layers of the software stack. NVML exposes power, temperature, memory, and utilization at the device level. LLM serving APIs expose token counts, latency, and request status at the application level. The energy-per-token metric requires both:
+
+\begin{equation}
+    \mathrm{J/token} = \frac{E_{\mathrm{GPU}}}{N_{\mathrm{tokens}}}
+\end{equation}
+
+where \(E_{\mathrm{GPU}}\) is the sampled GPU energy over a session and \(N_{\mathrm{tokens}}\) is the number of prompt and completion tokens served in that same session.
+
+\subsection{Benchmarking Versus Deployment Monitoring}
+
+Benchmark suites can produce controlled and repeatable measurements, but they are often too heavyweight for day-to-day deployment monitoring. Engineers tuning an already-running LLM server may want to answer narrower operational questions: how much energy does this configuration consume per million tokens, whether a concurrency setting improves or hurts energy efficiency, or whether a model/serving-engine choice changes the energy profile.
+
+\subsection{Instrumentation Friction}
+
+Server-specific instrumentation limits adoption. A monitoring approach that requires modifying vLLM, SGLang, or another inference engine creates a maintenance burden and may not apply to closed or hosted services. Similarly, requiring DCGM, Prometheus, a database, or privileged daemons raises the setup cost for individual researchers and cluster users.
+
+\subsection{Energy Attribution Under Concurrency}
+
+Precise per-request energy attribution is challenging because power is sampled continuously while token usage is reported discretely, often only after a request completes. Multiple concurrent requests may overlap in time. Our first design therefore targets session-level aggregate attribution, which is a useful operational signal while avoiding overclaiming exact per-request energy accounting.
+
+\section{Framework Design}
+
+\begin{figure}[t]
+\centering
+\fbox{
+\begin{minipage}{0.92\linewidth}
+\centering
+\vspace{0.3em}
+\texttt{Client}\\
+\(\downarrow\)\\
+\texttt{llm-power-profiler proxy}\\
+\(\downarrow\)\\
+\texttt{OpenAI-compatible LLM server}\\
+\vspace{0.5em}
+\hrule
+\vspace{0.5em}
+\texttt{NVML sampler} \(\rightarrow\) \texttt{Stats engine}\\
+\texttt{usage.total\_tokens} \(\rightarrow\) \texttt{Stats engine}\\
+\vspace{0.3em}
+\end{minipage}
+}
+\caption{High-level architecture. The proxy forwards OpenAI-compatible requests, extracts token usage from responses, and combines this application-layer signal with NVML GPU power sampling.}
+\label{fig:architecture}
+\end{figure}
+
+Figure~\ref{fig:architecture} shows the framework. A client points to the local profiler endpoint instead of the original server endpoint. The proxy forwards traffic to the target LLM server and returns the response to the client. For non-streaming OpenAI-compatible responses, it extracts \texttt{usage.prompt\_tokens}, \texttt{usage.completion\_tokens}, and \texttt{usage.total\_tokens}. In parallel, a background sampler reads GPU power telemetry through NVML.
+
+\subsection{Metrics}
+
+The framework reports the following session-level metrics:
+
+\begin{itemize}
+    \item request count;
+    \item prompt, completion, and total tokens;
+    \item average and peak GPU power;
+    \item total energy in joules, Wh, and kWh;
+    \item joules per token;
+    \item kWh per million tokens;
+    \item GPU memory and utilization when available.
+\end{itemize}
+
+Energy is computed by integrating sampled power over time. Given power samples \(P_i\) and timestamps \(t_i\), the current implementation uses trapezoidal integration:
+
+\begin{equation}
+    E \approx \sum_i \frac{P_i + P_{i+1}}{2}(t_{i+1} - t_i)
+\end{equation}
+
+The kWh per million tokens metric is:
+
+\begin{equation}
+    \mathrm{kWh/1M\ tokens} =
+    \frac{\mathrm{J/token} \times 10^6}{3.6 \times 10^6}.
+\end{equation}
+
+\section{Implementation}
+
+\texttt{llm-power-profiler} is implemented as a Python package. The command-line interface exposes three core commands:
+
+\begin{itemize}
+    \item \texttt{doctor}: checks NVML and GPU power telemetry;
+    \item \texttt{watch}: displays lightweight GPU telemetry;
+    \item \texttt{proxy}: runs the OpenAI-compatible proxy and exports session metrics.
+\end{itemize}
+
+The implementation uses Typer for CLI handling, Rich for terminal rendering, Starlette and httpx for HTTP proxying, and \texttt{nvidia-ml-py} for NVML access. The first version intentionally avoids a daemon, database, Prometheus dependency, or root-level setup.
+
+The proxy can sample all GPUs or a user-selected subset with \texttt{--gpus}. This is important for multi-GPU cluster nodes where only a subset of devices is assigned to a job. The implementation also includes a mock OpenAI-compatible server and a traffic generator to validate the token-accounting path before running a real LLM server.
+
+\section{Experimental Methodology}
+
+The planned evaluation targets A100, H100, and H200 systems. The primary serving stack is vLLM, with SGLang as an optional second engine. The initial model set will include one 7B/8B-class model, with a larger model added if resources allow.
+
+\begin{table}[t]
+\centering
+\caption{Initial experiment matrix.}
+\label{tab:matrix}
+\begin{tabular}{ll}
+\toprule
+Dimension & Values \\
+\midrule
+GPU & A100, H100, H200 \\
+Server & vLLM; SGLang optional \\
+Concurrency & 1, 4, 8, 16 \\
+Max output tokens & 64, 256, 1024 \\
+Metrics & tokens/s, W, J/token, kWh/1M tokens \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Table~\ref{tab:matrix} summarizes the initial matrix. For each configuration, we will run both direct and proxied traffic to estimate monitoring overhead. The traffic generator records request counts, errors, average latency, p50 latency, p95 latency, and total tokens. The profiler records the energy metrics.
+
+\subsection{Evaluation Questions}
+
+The evaluation is organized around five questions:
+
+\begin{enumerate}
+    \item Can the proxy collect useful energy-per-token metrics without modifying the LLM server?
+    \item What is the latency overhead of the proxy compared with direct requests?
+    \item How do concurrency and output length affect joules per token?
+    \item How do A100, H100, and H200 compare under the same workload shape?
+    \item Are session-level trends stable enough to guide deployment decisions?
+\end{enumerate}
+
+\section{Preliminary Smoke Test}
+
+We validated the monitoring path on an A100 80GB PCIe system. The \texttt{doctor} command confirmed that NVML was available, one GPU was visible, and GPU power telemetry could be read. We then ran the mock OpenAI-compatible server behind the profiler proxy and generated 16 concurrent test requests. The proxy successfully recorded 16 requests, 2,208 total tokens, average idle GPU power around 45 W, and a session-level joules-per-token value.
+
+This smoke test is not intended to report real LLM inference energy. The mock server does not exercise the GPU. Instead, it verifies that the monitoring path can connect HTTP token accounting, NVML telemetry, energy integration, and terminal reporting on the target A100 system. The real evaluation will replace the mock server with vLLM and SGLang inference workloads.
+
+\section{Expected Results and Analysis}
+
+TODO: Fill this section after A100/H100/H200 runs.
+
+We expect the evaluation to produce the following figures:
+
+\begin{itemize}
+    \item joules per token versus concurrency;
+    \item tokens per second versus average GPU power;
+    \item kWh per million tokens across GPU generations;
+    \item proxy overhead measured as direct versus proxied latency;
+    \item energy behavior across short and long output lengths.
+\end{itemize}
+
+The analysis should avoid claiming exact per-request attribution. Instead, it should focus on whether session-level energy-per-token measurements are stable, low overhead, and actionable for deployment engineering.
+
+\section{Limitations}
+
+The current framework has several limitations. First, it reports session-level aggregate attribution rather than exact per-request energy accounting. Second, the first implementation measures GPU power only; CPU, DRAM, storage, and network energy are not included. Third, token accounting currently targets non-streaming OpenAI-compatible responses. Fourth, NVML sampling has finite resolution and may miss short transients. Finally, multi-tenant GPU use can distort attribution if unrelated processes run on the same device.
+
+\section{Conclusion}
+
+This paper presents \texttt{llm-power-profiler}, a lightweight framework for deployment-time energy-per-token monitoring of local LLM inference servers. By bridging OpenAI-compatible token usage with NVML GPU power telemetry, the framework turns separate application and system signals into operational metrics such as joules per token and kWh per million tokens. The design emphasizes low friction: no server modifications, no privileged daemon, no database, and no heavyweight benchmark harness. Ongoing work will complete the A100/H100/H200 evaluation and quantify proxy overhead under real LLM serving workloads.
+
+\section*{Acknowledgments}
+
+TODO: Add funding, resource, and collaborator acknowledgments.
+
+% TODO: If required by the final IEEE/HPEC policy, disclose AI-assisted drafting here.
+
+\bibliographystyle{IEEEtran}
+\bibliography{refs}
+
+\end{document}
+
