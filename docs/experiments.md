@@ -122,3 +122,15 @@ Likely first figures:
 - tokens/sec vs average power
 - kWh/1M tokens across A100, H100, H200
 - proxy overhead vs direct server request latency
+
+## Minimal Paper Path
+
+To keep the first paper iteration lightweight, prioritize:
+
+1. one A100 vLLM run to prove real inference monitoring;
+2. one direct-vs-proxy overhead run on A100;
+3. one matched H100 run;
+4. one matched H200 run;
+5. a small concurrency sweep only after the single-point runs work.
+
+Use `active_joules_per_token` and `active_kwh_per_1m_tokens` as the primary energy metrics for paper figures, because session-level metrics include idle time before and after traffic.

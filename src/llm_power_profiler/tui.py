@@ -71,6 +71,9 @@ def render_session(snapshot: SessionSnapshot, target: str, listening: str) -> Gr
     metrics.add_row("Completion tokens", f"{snapshot.completion_tokens:,}")
     metrics.add_row("Total tokens", f"{snapshot.total_tokens:,}")
     metrics.add_row("Throughput", _fmt(snapshot.tokens_per_second, "tok/s"))
+    metrics.add_row("Active duration", f"{snapshot.active_duration_s:,.2f} s")
+    metrics.add_row("Active throughput", _fmt(snapshot.active_tokens_per_second, "tok/s"))
+    metrics.add_row("In-flight requests", f"{snapshot.inflight_requests:,}")
     if snapshot.power_error:
         metrics.add_row("Power telemetry", f"[yellow]disabled[/yellow]: {snapshot.power_error}")
     metrics.add_row("Avg power", _fmt(snapshot.avg_power_w, "W"))
@@ -78,6 +81,10 @@ def render_session(snapshot: SessionSnapshot, target: str, listening: str) -> Gr
     metrics.add_row("Energy", f"{snapshot.energy_kwh:.6f} kWh")
     metrics.add_row("J/token", _fmt(snapshot.joules_per_token, "J"))
     metrics.add_row("kWh/1M tokens", _fmt(snapshot.kwh_per_1m_tokens, "kWh"))
+    metrics.add_row("Active avg power", _fmt(snapshot.active_avg_power_w, "W"))
+    metrics.add_row("Active energy", f"{snapshot.active_energy_kwh:.6f} kWh")
+    metrics.add_row("Active J/token", _fmt(snapshot.active_joules_per_token, "J"))
+    metrics.add_row("Active kWh/1M", _fmt(snapshot.active_kwh_per_1m_tokens, "kWh"))
     metrics.add_row("Avg GPU util", _fmt(snapshot.avg_gpu_util_pct, "%"))
     metrics.add_row("Max memory", _fmt(snapshot.max_memory_gb, "GB"))
 

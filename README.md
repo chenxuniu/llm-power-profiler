@@ -211,5 +211,6 @@ PYTHONPATH=src python3 -m unittest discover -s tests
 ```
 
 See [docs/validation.md](docs/validation.md) for a step-by-step local validation flow.
+See [docs/minimal-validation.md](docs/minimal-validation.md) for the lowest-burden validation plan.
 See [docs/experiments.md](docs/experiments.md) for the first A100/H100/H200 experiment plan.
 See [docs/hpec-paper-plan.md](docs/hpec-paper-plan.md) for the short paper direction.

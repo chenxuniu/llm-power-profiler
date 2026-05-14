@@ -14,6 +14,9 @@ class SessionSnapshot:
     completion_tokens: int
     total_tokens: int
     tokens_per_second: Optional[float]
+    active_tokens_per_second: Optional[float]
+    active_duration_s: float
+    inflight_requests: int
     avg_power_w: Optional[float]
     peak_power_w: Optional[float]
     power_error: Optional[str]
@@ -22,6 +25,12 @@ class SessionSnapshot:
     energy_kwh: float
     joules_per_token: Optional[float]
     kwh_per_1m_tokens: Optional[float]
+    active_avg_power_w: Optional[float]
+    active_energy_j: float
+    active_energy_wh: float
+    active_energy_kwh: float
+    active_joules_per_token: Optional[float]
+    active_kwh_per_1m_tokens: Optional[float]
     avg_gpu_util_pct: Optional[float]
     max_memory_gb: Optional[float]
 
@@ -33,6 +42,9 @@ class SessionSnapshot:
             "completion_tokens": self.completion_tokens,
             "total_tokens": self.total_tokens,
             "tokens_per_second": self.tokens_per_second,
+            "active_tokens_per_second": self.active_tokens_per_second,
+            "active_duration_s": self.active_duration_s,
+            "inflight_requests": self.inflight_requests,
             "avg_power_w": self.avg_power_w,
             "peak_power_w": self.peak_power_w,
             "power_error": self.power_error,
@@ -41,6 +53,12 @@ class SessionSnapshot:
             "energy_kwh": self.energy_kwh,
             "joules_per_token": self.joules_per_token,
             "kwh_per_1m_tokens": self.kwh_per_1m_tokens,
+            "active_avg_power_w": self.active_avg_power_w,
+            "active_energy_j": self.active_energy_j,
+            "active_energy_wh": self.active_energy_wh,
+            "active_energy_kwh": self.active_energy_kwh,
+            "active_joules_per_token": self.active_joules_per_token,
+            "active_kwh_per_1m_tokens": self.active_kwh_per_1m_tokens,
             "avg_gpu_util_pct": self.avg_gpu_util_pct,
             "max_memory_gb": self.max_memory_gb,
         }
@@ -55,6 +73,10 @@ class SessionStats:
         self._power_area_j = 0.0
         self._power_sample_count = 0
         self._power_sum_w = 0.0
+        self._active_last_time: Optional[float] = None
+        self._active_duration_s = 0.0
+        self._active_power_area_j = 0.0
+        self._active_requests = 0
         self._peak_power_w: Optional[float] = None
         self._gpu_util_sum = 0.0
         self._gpu_util_count = 0
@@ -73,6 +95,7 @@ class SessionStats:
     ) -> None:
         now = time.monotonic()
         with self._lock:
+            self._advance_active_window(now)
             if self._last_power_time is not None and self._last_power_w is not None:
                 elapsed_s = max(0.0, now - self._last_power_time)
                 self._power_area_j += ((self._last_power_w + total_power_w) / 2.0) * elapsed_s
@@ -102,6 +125,29 @@ class SessionStats:
         with self._lock:
             self._power_error = message
 
+    def begin_request(self) -> None:
+        now = time.monotonic()
+        with self._lock:
+            self._advance_active_window(now)
+            self._active_requests += 1
+            self._active_last_time = now
+
+    def complete_request(
+        self,
+        prompt_tokens: int = 0,
+        completion_tokens: int = 0,
+        total_tokens: int = 0,
+    ) -> None:
+        now = time.monotonic()
+        with self._lock:
+            self._advance_active_window(now)
+            self._active_requests = max(0, self._active_requests - 1)
+            self._active_last_time = now if self._active_requests > 0 else None
+            self._request_count += 1
+            self._prompt_tokens += prompt_tokens
+            self._completion_tokens += completion_tokens
+            self._total_tokens += total_tokens or prompt_tokens + completion_tokens
+
     def record_request(self, prompt_tokens: int, completion_tokens: int, total_tokens: int) -> None:
         with self._lock:
             self._request_count += 1
@@ -110,14 +156,26 @@ class SessionStats:
             self._total_tokens += total_tokens or prompt_tokens + completion_tokens
 
     def snapshot(self) -> SessionSnapshot:
+        now = time.monotonic()
         with self._lock:
-            duration_s = max(0.0, time.monotonic() - self._start_time)
+            active_duration_s = self._active_duration_s
+            active_energy_j = self._active_power_area_j
+            if self._active_requests > 0 and self._active_last_time is not None:
+                elapsed_s = max(0.0, now - self._active_last_time)
+                active_duration_s += elapsed_s
+                if self._last_power_w is not None:
+                    active_energy_j += self._last_power_w * elapsed_s
+
+            duration_s = max(0.0, now - self._start_time)
             avg_power_w = (
                 self._power_sum_w / self._power_sample_count
                 if self._power_sample_count
                 else None
             )
             tokens_per_second = self._total_tokens / duration_s if duration_s > 0 else None
+            active_tokens_per_second = (
+                self._total_tokens / active_duration_s if active_duration_s > 0 else None
+            )
             joules_per_token = (
                 self._power_area_j / self._total_tokens
                 if self._total_tokens > 0
@@ -126,6 +184,17 @@ class SessionStats:
             kwh_per_1m_tokens = (
                 joules_per_token * 1_000_000 / 3_600_000
                 if joules_per_token is not None
+                else None
+            )
+            active_avg_power_w = (
+                active_energy_j / active_duration_s if active_duration_s > 0 else None
+            )
+            active_joules_per_token = (
+                active_energy_j / self._total_tokens if self._total_tokens > 0 else None
+            )
+            active_kwh_per_1m_tokens = (
+                active_joules_per_token * 1_000_000 / 3_600_000
+                if active_joules_per_token is not None
                 else None
             )
             avg_gpu_util_pct = (
@@ -139,6 +208,9 @@ class SessionStats:
                 completion_tokens=self._completion_tokens,
                 total_tokens=self._total_tokens,
                 tokens_per_second=tokens_per_second,
+                active_tokens_per_second=active_tokens_per_second,
+                active_duration_s=active_duration_s,
+                inflight_requests=self._active_requests,
                 avg_power_w=avg_power_w,
                 peak_power_w=self._peak_power_w,
                 power_error=self._power_error,
@@ -147,6 +219,26 @@ class SessionStats:
                 energy_kwh=self._power_area_j / 3_600_000.0,
                 joules_per_token=joules_per_token,
                 kwh_per_1m_tokens=kwh_per_1m_tokens,
+                active_avg_power_w=active_avg_power_w,
+                active_energy_j=active_energy_j,
+                active_energy_wh=active_energy_j / 3600.0,
+                active_energy_kwh=active_energy_j / 3_600_000.0,
+                active_joules_per_token=active_joules_per_token,
+                active_kwh_per_1m_tokens=active_kwh_per_1m_tokens,
                 avg_gpu_util_pct=avg_gpu_util_pct,
                 max_memory_gb=self._max_memory_gb,
             )
+
+    def _advance_active_window(self, now: float) -> None:
+        if self._active_requests <= 0:
+            self._active_last_time = None
+            return
+        if self._active_last_time is None:
+            self._active_last_time = now
+            return
+
+        elapsed_s = max(0.0, now - self._active_last_time)
+        self._active_duration_s += elapsed_s
+        if self._last_power_w is not None:
+            self._active_power_area_j += self._last_power_w * elapsed_s
+        self._active_last_time = now

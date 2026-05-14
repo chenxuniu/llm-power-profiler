@@ -84,21 +84,28 @@ def create_app(target: str, stats: SessionStats) -> Starlette:
         }
         body = await request.body()
 
-        async with httpx.AsyncClient(timeout=None) as client:
-            upstream = await client.request(
-                request.method,
-                target_url,
-                headers=headers,
-                content=body,
-            )
+        stats.begin_request()
+        try:
+            async with httpx.AsyncClient(timeout=None) as client:
+                upstream = await client.request(
+                    request.method,
+                    target_url,
+                    headers=headers,
+                    content=body,
+                )
+        except Exception:
+            stats.complete_request()
+            raise
 
         usage = _extract_usage(upstream)
         if usage is not None:
-            stats.record_request(
+            stats.complete_request(
                 prompt_tokens=usage.get("prompt_tokens", 0),
                 completion_tokens=usage.get("completion_tokens", 0),
                 total_tokens=usage.get("total_tokens", 0),
             )
+        else:
+            stats.complete_request()
 
         response_headers = {
             key: value
