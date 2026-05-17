@@ -214,3 +214,44 @@ See [docs/validation.md](docs/validation.md) for a step-by-step local validation
 See [docs/minimal-validation.md](docs/minimal-validation.md) for the lowest-burden validation plan.
 See [docs/experiments.md](docs/experiments.md) for the first A100/H100/H200 experiment plan.
 See [docs/hpec-paper-plan.md](docs/hpec-paper-plan.md) for the short paper direction.
+
+## Validation Scripts
+
+Collect machine metadata:
+
+```bash
+python3 scripts/collect_env.py --gpus 0 --output reports/a100-env.json
+```
+
+Run the mock end-to-end validation:
+
+```bash
+python3 scripts/run_mock_validation.py --gpus 0 --prefix a100-mock
+```
+
+Run validation against an existing vLLM/OpenAI-compatible server:
+
+```bash
+python3 scripts/run_vllm_validation.py \
+  --target http://127.0.0.1:8001 \
+  --model <MODEL_NAME> \
+  --gpus 0 \
+  --prefix a100-vllm
+```
+
+Run a small concurrency sweep:
+
+```bash
+python3 scripts/run_concurrency_sweep.py \
+  --target http://127.0.0.1:8001 \
+  --model <MODEL_NAME> \
+  --gpus 0 \
+  --concurrency 1,4,8 \
+  --prefix a100-vllm
+```
+
+Summarize reports:
+
+```bash
+python3 scripts/summarize_reports.py --reports-dir reports --csv reports/summary.csv
+```

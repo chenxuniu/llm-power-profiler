@@ -12,7 +12,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import Route
 
-from llm_power_profiler.export import write_json_report
+from llm_power_profiler.export import build_proxy_report, write_json_report
 from llm_power_profiler.nvml import NVMLMonitor, NVMLUnavailable
 from llm_power_profiler.stats import SessionStats
 from llm_power_profiler.tui import render_session
@@ -68,7 +68,17 @@ def run_proxy(
         sampler_thread.join(timeout=2)
         dashboard_thread.join(timeout=2)
         if export_path:
-            write_json_report(export_path, stats.snapshot().to_dict())
+            write_json_report(
+                export_path,
+                build_proxy_report(
+                    stats=stats,
+                    target=target,
+                    host=host,
+                    port=port,
+                    interval_s=interval_s,
+                    gpu_indices=gpu_indices,
+                ),
+            )
 
 
 def create_app(target: str, stats: SessionStats) -> Starlette:

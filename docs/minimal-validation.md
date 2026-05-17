@@ -14,6 +14,7 @@ Run once per machine:
 
 ```bash
 llm-power-profiler doctor --gpus 0
+python3 scripts/collect_env.py --gpus 0 --output reports/env.json
 ```
 
 Save the GPU model, driver version from `nvidia-smi`, and the `doctor` output screenshot.
@@ -59,6 +60,12 @@ Expected:
 - `avg_power_w` is nonzero on NVIDIA GPUs.
 - active metrics are present in the JSON export.
 
+Or run the automated version:
+
+```bash
+python3 scripts/run_mock_validation.py --gpus 0 --prefix mock
+```
+
 ## Stage 2: One Real vLLM Smoke Run on A100
 
 Terminal 1:
@@ -98,6 +105,16 @@ Expected:
 - GPU memory reflects model loading.
 - average power is higher than the idle mock run.
 
+Automated version, assuming vLLM is already running:
+
+```bash
+python3 scripts/run_vllm_validation.py \
+  --target http://127.0.0.1:8001 \
+  --model <MODEL_NAME> \
+  --gpus 0 \
+  --prefix a100-vllm
+```
+
 ## Stage 3: Direct-vs-Proxy Overhead
 
 Run the same traffic directly against the server:
@@ -119,6 +136,16 @@ Compare with the proxied summary:
 - `latency_p50_s`
 - `latency_p95_s`
 - `tokens_per_second`
+
+Automated version:
+
+```bash
+python3 scripts/run_overhead_validation.py \
+  --target http://127.0.0.1:8001 \
+  --model <MODEL_NAME> \
+  --gpus 0 \
+  --prefix a100-overhead
+```
 
 ## Stage 4: Minimal Cross-GPU Evidence
 
@@ -149,4 +176,21 @@ This gives the second figure:
 
 ```text
 active joules/token vs concurrency
+```
+
+Automated version:
+
+```bash
+python3 scripts/run_concurrency_sweep.py \
+  --target http://127.0.0.1:8001 \
+  --model <MODEL_NAME> \
+  --gpus 0 \
+  --concurrency 1,4,8 \
+  --prefix a100-vllm
+```
+
+Summarize any completed runs:
+
+```bash
+python3 scripts/summarize_reports.py --reports-dir reports --csv reports/summary.csv
 ```

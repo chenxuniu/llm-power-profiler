@@ -51,3 +51,7 @@ def proxy(
         export_path=export,
         gpu_indices=parse_gpu_indices(gpus),
     )
+
+
+if __name__ == "__main__":
+    app()

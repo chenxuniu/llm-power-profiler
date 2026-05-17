@@ -134,3 +134,9 @@ To keep the first paper iteration lightweight, prioritize:
 5. a small concurrency sweep only after the single-point runs work.
 
 Use `active_joules_per_token` and `active_kwh_per_1m_tokens` as the primary energy metrics for paper figures, because session-level metrics include idle time before and after traffic.
+
+After each batch of runs, generate a compact table:
+
+```bash
+python3 scripts/summarize_reports.py --reports-dir reports --csv reports/summary.csv
+```
